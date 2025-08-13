@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\ServiceController;
 
 Route::get('/', function () {
     return Inertia::render('Welcome');
@@ -18,6 +19,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->parameters(['clients' => 'client']);
 
     Route::delete('clients/bulk', [ClientController::class, 'bulkDestroy'])->name('clients.bulk-destroy');
+
+    Route::resource('services', ServiceController::class)
+        ->except(['show'])
+        ->parameters(['services' => 'service']);
 });
 
 require __DIR__.'/settings.php';

@@ -2,11 +2,15 @@
 
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
+use App\Http\Controllers\Settings\TeamController;
+use App\Http\Controllers\Settings\TagController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::middleware('auth')->group(function () {
-    Route::redirect('settings', '/settings/profile');
+    Route::get('settings', function () {
+        return Inertia::render('settings/Index');
+    })->name('settings.index');
 
     Route::get('settings/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('settings/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -21,4 +25,11 @@ Route::middleware('auth')->group(function () {
     Route::get('settings/appearance', function () {
         return Inertia::render('settings/Appearance');
     })->name('appearance');
+
+    Route::prefix('settings')->as('settings.')->group(function () {
+        Route::resource('team', TeamController::class)->except(['show']);
+        Route::delete('team/bulk', [TeamController::class, 'bulkDestroy'])->name('team.bulk-destroy');
+        Route::resource('tags', TagController::class)->except(['show']);
+        Route::delete('tags/bulk', [TagController::class, 'bulkDestroy'])->name('tags.bulk-destroy');
+    });
 });

@@ -33,6 +33,11 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        // Update last login timestamp for the authenticated user
+        if ($request->user()) {
+            $request->user()->forceFill(['last_login_at' => now()])->save();
+        }
+
         return redirect()->intended(route('dashboard', absolute: false));
     }
 

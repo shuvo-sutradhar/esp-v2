@@ -2,20 +2,24 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { type BreadcrumbItem } from '@/types';
-import { Input } from '@/components/ui/input';
+import ListHeader from '@/components/ListHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ref, computed, watch } from 'vue';
+import Pagination from '@/components/Pagination.vue';
 import { useDebounceFn } from '@vueuse/core';
 
 interface ClientListItem {
     id: number;
     name: string;
     email: string;
+    phone?: string | null;
+    company_name?: string | null;
     created_at: string;
+    last_login_at?: string | null;
 }
 
-const props = defineProps<{ clients: ClientListItem[]; filters?: { search?: string } }>();
+const props = defineProps<{ clients: { data: ClientListItem[]; links: any[] }; filters?: { search?: string } }>();
 
 /**
  * Search filter state and handler.
@@ -34,24 +38,43 @@ const onSearchChange = (value: string | number) => {
  * Local selection state for bulk actions.
  */
 const selectedIds = ref<Set<number>>(new Set());
-const allSelected = computed(() => props.clients.length > 0 && selectedIds.value.size === props.clients.length);
+const allSelected = computed(() => props.clients.data.length > 0 && selectedIds.value.size === props.clients.data.length);
 
 const toggleSelect = (id: number, checked: boolean) => {
-    if (checked) selectedIds.value.add(id);
-    else selectedIds.value.delete(id);
+    const next = new Set<number>(selectedIds.value);
+    if (checked) next.add(id);
+    else next.delete(id);
+    selectedIds.value = next;
 };
 
-const allOrSomeSelected = computed(() => (allSelected.value ? true : selectedIds.value.size > 0 ? 'indeterminate' : false));
 
 // Keep selection in sync when the dataset changes (e.g., due to filtering)
 watch(
-    () => props.clients,
+    () => props.clients.data,
     (list) => {
         const current = new Set<number>();
-        for (const c of list) current.add(c.id);
+        for (const c of list) current.add(c.id as number);
         selectedIds.value = new Set(Array.from(selectedIds.value).filter((id) => current.has(id)));
     },
 );
+
+// v-model bridges for Checkbox component (uses `checked` prop)
+const allCheckedModel = computed<boolean>({
+    get: () => allSelected.value,
+    set: (val: boolean) => {
+        if (val) {
+            selectedIds.value = new Set(props.clients.data.map((c) => c.id as number));
+        } else {
+            selectedIds.value = new Set();
+        }
+    },
+});
+
+const rowCheckedModel = (id: number) =>
+    computed<boolean>({
+        get: () => selectedIds.value.has(id),
+        set: (val: boolean) => toggleSelect(id, val),
+    });
 
 /**
  * Confirm and perform single row delete.
@@ -85,25 +108,23 @@ const breadcrumbs: BreadcrumbItem[] = [
         <Head title="Clients" />
 
         <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-                <h1 class="text-xl font-semibold">Clients</h1>
-                <div class="flex items-center gap-2">
-                    <Input
-                        v-model="search"
-                        placeholder="Search by name or email..."
-                        class="w-64"
-                        @update:modelValue="onSearchChange"
-                    />
+            <ListHeader
+                title="Clients"
+                :search="search"
+                search-placeholder="Search by name or email..."
+                @update:search="onSearchChange"
+            >
+                <template #actions>
                     <Link :href="route('clients.create')" class="inline-flex items-center rounded-md bg-black px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200">
                         Create client
                     </Link>
-                </div>
-            </div>
+                </template>
+            </ListHeader>
 
             <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
                 <div class="flex items-center justify-between p-3">
                     <div class="flex items-center gap-2">
-                        <Checkbox :checked="allOrSomeSelected as any" @update:checked="(v: boolean | 'indeterminate') => { if (v) selectedIds.value = new Set(props.clients.map(c => c.id)); else selectedIds.value.clear(); }" aria-label="Select all" />
+                        <Checkbox v-model:checked="allCheckedModel" aria-label="Select all" />
                         <span class="text-sm text-neutral-600 dark:text-neutral-400">Select all</span>
                     </div>
                     <div class="flex items-center gap-2">
@@ -111,24 +132,30 @@ const breadcrumbs: BreadcrumbItem[] = [
                     </div>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
+                    <table class="app-table min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
                         <thead>
                             <tr class="text-left text-sm text-neutral-500">
                                 <th class="w-10 px-3 py-2"></th>
                                 <th class="px-3 py-2 font-medium">Name</th>
                                 <th class="px-3 py-2 font-medium">Email</th>
-                                <th class="px-3 py-2 font-medium">Joined</th>
+                                <th class="px-3 py-2 font-medium">Phone</th>
+                                <th class="px-3 py-2 font-medium">Company</th>
+                                <th class="px-3 py-2 font-medium">Join date</th>
+                                <th class="px-3 py-2 font-medium">Last login</th>
                                 <th class="px-3 py-2 font-medium text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-neutral-100 dark:divide-neutral-900">
-                            <tr v-for="client in props.clients" :key="client.id" class="text-sm">
+                            <tr v-for="client in props.clients.data" :key="client.id" class="text-sm">
                                 <td class="w-10 px-3 py-2">
-                                    <Checkbox :checked="selectedIds.has(client.id)" @update:checked="(val: boolean | 'indeterminate') => toggleSelect(client.id, !!val)" aria-label="Select row" />
+                                    <Checkbox :checked="rowCheckedModel(client.id).value" @update:checked="(val:boolean | 'indeterminate') => { if (val === 'indeterminate') return; rowCheckedModel(client.id).value = val; }" aria-label="Select row" />
                                 </td>
                                 <td class="px-3 py-2">{{ client.name }}</td>
                                 <td class="px-3 py-2">{{ client.email }}</td>
+                                <td class="px-3 py-2">{{ client.phone || '-' }}</td>
+                                <td class="px-3 py-2">{{ client.company_name || '-' }}</td>
                                 <td class="px-3 py-2">{{ new Date(client.created_at).toLocaleDateString() }}</td>
+                                <td class="px-3 py-2">{{ client.last_login_at ? new Date(client.last_login_at).toLocaleString() : '-' }}</td>
                                 <td class="px-3 py-2 text-right">
                                     <div class="flex items-center justify-end gap-3">
                                         <Link :href="route('clients.edit', client.id)" class="text-primary underline underline-offset-4">
@@ -138,12 +165,13 @@ const breadcrumbs: BreadcrumbItem[] = [
                                     </div>
                                 </td>
                             </tr>
-                            <tr v-if="props.clients.length === 0">
-                                <td colspan="5" class="px-3 py-6 text-center text-sm text-neutral-500">No clients found.</td>
+                            <tr v-if="props.clients.data.length === 0">
+                                <td colspan="8" class="px-3 py-6 text-center text-sm text-neutral-500">No clients found.</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+                <Pagination :links="props.clients.links" />
             </div>
         </div>
     </AppLayout>

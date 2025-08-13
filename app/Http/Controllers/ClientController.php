@@ -4,14 +4,22 @@ namespace App\Http\Controllers;
 
 use App\Enums\UserType;
 use App\Models\User;
+use App\Models\Country;
+use App\Services\ClientService;
+use App\Http\Requests\StoreClientRequest;
+use App\Http\Requests\UpdateClientRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ClientController extends Controller
 {
+    public function __construct(private readonly ClientService $clientService)
+    {
+    }
 
     /**
      * Display a listing of client users with optional text search filtering.
@@ -19,17 +27,7 @@ class ClientController extends Controller
     public function index(Request $request): Response
     {
         $search = (string) $request->string('search');
-
-        $clients = User::query()
-            ->where('type', UserType::CLIENT->value)
-            ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%");
-                });
-            })
-            ->orderByDesc('created_at')
-            ->get(['id', 'name', 'email', 'created_at', 'updated_at']);
+        $clients = $this->clientService->paginateClients($search, 10);
 
         return Inertia::render('clients/Index', [
             'clients' => $clients,
@@ -44,62 +42,60 @@ class ClientController extends Controller
      */
     public function create(): Response
     {
-        return Inertia::render('clients/Create');
+        $countries = Country::orderBy('name')->get(['id', 'name']);
+
+        return Inertia::render('clients/Create', [
+            'countries' => $countries,
+        ]);
     }
 
     /**
      * Store a newly created client user in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreClientRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'string', 'min:8'],
-        ]);
-
-        User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
-            'type' => UserType::CLIENT->value,
-        ]);
+        $data = $request->validated();
+        $this->clientService->createClient($data, $request->file('avatar'), (bool) ($data['send_welcome'] ?? false));
 
         return to_route('clients.index');
     }
 
     public function edit(User $client): Response
     {
+        $client->load('profile');
+        $countries = Country::orderBy('name')->get(['id', 'name']);
+
         return Inertia::render('clients/Edit', [
             'client' => [
                 'id' => $client->id,
                 'name' => $client->name,
                 'email' => $client->email,
+                'phone' => $client->phone,
+                'avatar' => $client->avatar,
                 'email_verified_at' => $client->email_verified_at,
                 'created_at' => $client->created_at,
                 'updated_at' => $client->updated_at,
+                'profile' => [
+                    'address' => $client->profile->address ?? null,
+                    'country_id' => $client->profile->country_id ?? null,
+                    'state' => $client->profile->state ?? null,
+                    'city' => $client->profile->city ?? null,
+                    'post_code' => $client->profile->post_code ?? null,
+                    'company_name' => $client->profile->company_name ?? null,
+                    'tax_id' => $client->profile->tax_id ?? null,
+                ],
             ],
+            'countries' => $countries,
         ]);
     }
 
     /**
      * Update the specified client user in storage.
      */
-    public function update(Request $request, User $client): RedirectResponse
+    public function update(UpdateClientRequest $request, User $client): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email,'.$client->id],
-            'password' => ['nullable', 'string', 'min:8'],
-        ]);
-
-        $client->name = $validated['name'];
-        $client->email = $validated['email'];
-        if (!empty($validated['password'])) {
-            $client->password = Hash::make($validated['password']);
-        }
-        $client->type = UserType::CLIENT->value;
-        $client->save();
+        $data = $request->validated();
+        $this->clientService->updateClient($client, $data, $request->file('avatar'), (bool) ($data['send_welcome'] ?? false));
 
         return to_route('clients.index');
     }
@@ -109,7 +105,7 @@ class ClientController extends Controller
      */
     public function destroy(User $client): RedirectResponse
     {
-        $client->delete();
+        $this->clientService->deleteClient($client);
         return back();
     }
 
@@ -123,9 +119,7 @@ class ClientController extends Controller
             'ids.*' => ['integer', 'exists:users,id'],
         ]);
 
-        User::whereIn('id', $validated['ids'])
-            ->where('type', UserType::CLIENT->value)
-            ->delete();
+        app(ClientService::class)->bulkDelete($validated['ids']);
 
         return back();
     }

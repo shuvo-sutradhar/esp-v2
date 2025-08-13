@@ -84,6 +84,17 @@
     }
 }
 
+@layer components {
+    /* Global table styling hook. Apply class="app-table" on any table to inherit header styles. */
+    .app-table thead {
+        @apply bg-accent border-t border-border;
+    }
+
+    .app-table thead th {
+        @apply text-accent-foreground;
+    }
+}
+
 :root {
     --background: hsl(0 0% 100%);
     --foreground: hsl(0 0% 3.9%);
